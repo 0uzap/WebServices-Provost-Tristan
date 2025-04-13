@@ -15,8 +15,11 @@ const ProductSchema = z.object({
   name: z.string(),
   about: z.string(),
   price: z.number().positive(),
+  // reviews: z.array(z.number()),
+  // note: z.number().min(1).max(5)
 });
-const CreateProductSchema = ProductSchema.omit({ id: true });
+// const CreateProductSchema = ProductSchema.omit({ id: true, reviews: true, note: true });
+const CreateProductSchema = ProductSchema.omit({ id: true});
 
 app.post("/products", async (req, res) => {
   const result = await CreateProductSchema.safeParse(req.body);
@@ -59,7 +62,7 @@ app.get("/products", async (req, res) => {
       );
     }
 
-    // Simulation d'un prix vu qu'il y en a pas dan l'api??...
+    // Simulation d'un prix vu qu'il y en a pas dans l'api??...
     if (price) {
       games = games.map(game => ({
         ...game,
@@ -471,6 +474,21 @@ app.put("/orders/:id", async (req, res) => {
     res.status(400).send(result);
   }
 })
+
+// const ReviewSchema = z.object({
+//   id: z.string(),  
+//   userId: z.string(), 
+//   productId: z.string(), 
+//   score: z.number().min(1).max(5), 
+//   content: z.string().optional(), 
+//   createdAt: z.string(),  
+//   updatedAt: z.string(),  
+// });
+
+// const CreateReviewSchema = ReviewSchema.omit({ id: true, createdAt: true, updatedAt: true });
+
+
+
 
 
 app.listen(port, () => {
