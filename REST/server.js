@@ -36,33 +36,6 @@ app.post("/products", async (req, res) => {
   }
 });
 
-// app.get("/products", async (req, res) => {
-//   const { name, about, price } = req.query;
-// // J4EN SUIS ICI
-//   try {
-//     const fields = [];
-//     if (name) {
-//       fields.push("name");
-//     }
-//     if (about) {
-//       fields.push("about");
-//     }
-//     if (price) {
-//       fields.push("price");
-//     }
-
-//     const products = await sql`
-//     SELECT * FROM products
-//     ${name} 
-//     ${about}
-//     ${price}
-//     `;
-
-//     res.send(products);
-//   } catch (error) {}
-// });
-
-
 app.get("/products", async (req, res) => {
   try {
     const { name, about, price } = req.query;
@@ -270,6 +243,235 @@ app.get("/f2p-games/:id", async (req, res) => {
     res.status(500).send({ message: "Server error while fetching games." });
   }
 });
+
+const OrderSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  productIds: z.array(z.number()).min(1),
+  total: z.number(),
+  payment: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const CreateOrderSchema = z.object({
+  userId: z.string(),
+  productIds: z.array(z.number()).min(1)
+});
+
+const PatchOrderschema = z.object({
+  productIds: z.array(z.number()).min(1),
+  payment: z.boolean().optional(),
+});
+
+app.post("/orders", async (req, res) => {
+  const result = await CreateOrderSchema.safeParse(req.body);
+
+  if (result.success) {
+    const { userId, productIds} = result.data;
+
+    const products = await sql`
+      SELECT * FROM products WHERE id = ANY(${productIds})
+    `;
+    
+    if (products.length !== productIds.length) {
+      return res.status(400).send({ lessage: 'Un ou plusieurs produits ne sont pas valides.'});
+    }
+
+    const total = products.reduce((acc, p) => acc + p.price, 0) * 1.2;
+
+    const order = await sql`
+      INSERT INTO orders (user_id, product_ids, total)
+      VALUES (${userId}, ${productIds}, ${total})
+      RETURNING *
+    `;
+
+    const user = await sql`
+      SELECT id, username, email FROM users WHERE id = ${userId}
+    `;
+
+    res.send({
+      ...order[0],
+      user: user[0],
+      products,
+    });
+
+  } else {
+    res.status(400).send(result);
+  }
+});-
+
+
+app.get("/orders", async (req, res) => {
+  const orders = await sql `
+    SELECT * FROM orders
+  `;
+
+  const result = await Promise.all(
+    orders.map(async (order) => {
+
+      const user = await sql`
+        SELECT id, username, email FROM users WHERE id = ${order.user_id}
+      `;
+
+      const products = await sql `
+        SELECT * FROM products WHERE id = ANY(${order.product_ids})
+      `;
+
+      return {
+        ...order,
+        user: user[0],
+        products,
+      };
+    })
+  );
+
+  res.send(result);
+});
+
+
+app.get("/orders/:id", async (req, res) => {
+  const order = await sql `
+    SELECT * FROM orders WHERE id = ${req.params.id}
+  `;
+
+  if (order.length > 0) {
+    const user = await sql `
+      SELECT id, username, email FROM users WHERE id = ${order[0].user_id}
+    `;
+  
+    const products = await sql`
+      SELECT * FROM products WHERE id = ANY(${order[0].product_ids})
+    `;
+  
+    res.send({
+      ...order[0],
+      user: user[0],
+      products: products, 
+    });
+  
+
+  } else {
+    res.status(400).send({ message: "Order pas trouvé"});
+  }
+});
+
+
+app.patch("/orders/:id", async (req, res) => {
+  const result = await PatchOrderschema.safeParse(req.body);
+
+  if (result.success) {
+    const { productIds, payment } = result.data;
+    const fields = {};
+
+    if (productIds) {
+      const products = await sql `
+        SELECT * FROM products WHERE id = ANY(${productIds})
+      `;
+      if (products.length !== productIds.length) {
+        return res.status(400).send({message: "Produit invalide"});
+      }
+      fields.product_ids = productIds;
+      fields.total = products.reduce((acc, p) => acc + p.price, 0) * 1.2;
+    }
+
+    if (typeof payment === "boolean") {
+      fields.payment = payment
+    }
+
+    fields.updated_at = new Date();
+
+    try {
+      const order = await sql `
+        UPDATE orders
+        SET ${sql(fields)}
+        WHERE id = ${req.params.id}
+        RETURNING *
+      `;
+      if (order.length === 0) {
+        return res.status(404).send({ message: "Order pas trouvé"});
+      }
+
+      const user = await sql `
+        SELECT id, username, email FROM users WHERE id = ${order[0].user_id}
+      `;
+      const products = await sql `
+        SELECT * FROM products WHERE id = ANY(${order[0].product_ids})
+      `;
+
+      res.send({
+        ...order[0],
+        user: user[0],
+        products
+      });
+
+    } catch (error) {
+      console.error(error);
+      res.status(500).send({message: "Erreur serveur pendant le patch"});
+    }
+  } else {
+    res.status(400).send(result);
+  }
+})
+
+app.delete("/orders/:id", async (req, res) => {
+  const order = await sql `
+    DELETE FROM orders WHERE id = ${req.params.id}
+    RETURNING *
+  `; 
+
+  if (order.length > 0) {
+    res.send(order[0]);
+  } else {
+    res.status(404).send({message: "Order pas trouvé"});
+  }
+});
+
+app.put("/orders/:id", async (req, res) => {
+  const result = await CreateOrderSchema.safeParse(req.body);
+
+  if (result.success) {
+    const { userId, productIds } = result.data;
+
+    const products = await sql `
+      SELECT * FROM products WHERE id = ANY(${productIds})
+    `;
+
+    if (products.length !== productIds.length) {
+      return res.status(400).send({message: "Un ou plusieurs entrées sont invalides"});
+    }
+
+    const total = products.reduce((acc, p) => acc + p.price, 0) * 1.2;
+
+    const order = await sql `
+      UPDATE orders
+      SET user_id = ${userId},
+        product_ids = ${productIds},
+        total = ${total},
+        payment = false,
+        updated_at = ${new Date()}
+      WHERE id = ${req.params.id}
+      RETURNING *
+    `;
+
+    if (order.length === 0) {
+      return res.status(404).send({message: "Order pas trouvé"});
+    }
+
+    const user = await sql `
+      SELECT id, username, email FROM users WHERE id = ${userId}
+    `;
+
+    res.send({
+      ...order[0],
+      user: user[0],
+      products,
+    });
+  } else {
+    res.status(400).send(result);
+  }
+})
+
 
 app.listen(port, () => {
   console.log(`Listening on http://localhost:${port}`);

@@ -14,3 +14,13 @@ CREATE TABLE users (
   email VARCHAR(500),
   password VARCHAR(500)
 );
+
+CREATE TABLE orders (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  product_ids INTEGER[],
+  total FLOAT,
+  payment BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
